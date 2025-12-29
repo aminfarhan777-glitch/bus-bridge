@@ -1,41 +1,31 @@
-// api/push.js
+// pages/api/push.js
 import admin from "firebase-admin";
 
 function initFirebase() {
   if (admin.apps.length) return;
 
-  const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-  );
+  // Vercel Environment Variable:
+  // FIREBASE_SERVICE_ACCOUNT_JSON  (string JSON)
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
+    databaseURL: process.env.FIREBASE_DATABASE_URL, // e.g. https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app
   });
 }
 
 export default async function handler(req, res) {
-  // 🔥 CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") {
-    console.log("OPTIONS request");
-    return res.status(200).end();
+  // Health check
+  if (req.method === "GET") {
+    return res.status(200).json({ ok: true, message: "BUS-BRIDGE API running. Use POST /api/push" });
   }
 
+  // Allow POST only
   if (req.method !== "POST") {
-    console.log("NOT POST:", req.method);
-    return res.status(200).json({
-      ok: true,
-      message: "Use POST to send JSON",
-    });
+    return res.status(405).json({ ok: false, error: "Method not allowed. Use POST." });
   }
 
   try {
-    console.log("POST BODY:", req.body);
-
     initFirebase();
 
     const { lat, lng, speedKmh, timestampMs } = req.body || {};
@@ -48,28 +38,26 @@ export default async function handler(req, res) {
       lat: Number(lat),
       lng: Number(lng),
       speedKmh: Number(speedKmh ?? 0),
-      timestampMs: Date.now(),
+      timestampMs: Date.now(), // server time
       clientTimestampMs: Number(timestampMs ?? 0),
     };
 
     const db = admin.database();
 
-    // 1️⃣ CURRENT
+    // ✅ current location (Android app baca sini)
     await db.ref("bus/location").set(payload);
 
-    // 2️⃣ HISTORY
+    // ✅ history list (push auto id)
     const ref = db.ref("bus/history").push();
     await ref.set(payload);
 
-    console.log("SAVED:", ref.key);
-
     return res.status(200).json({
       ok: true,
-      message: "Saved",
+      message: "Saved to /bus/location and /bus/history",
       historyKey: ref.key,
     });
-  } catch (err) {
-    console.error("ERROR:", err);
-    return res.status(500).json({ ok: false, error: String(err) });
+  } catch (e) {
+    console.error("push error:", e);
+    return res.status(500).json({ ok: false, error: String(e) });
   }
 }
