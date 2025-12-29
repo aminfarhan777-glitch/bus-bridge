@@ -1,17 +1,44 @@
-export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+import admin from "firebase-admin";
 
-  const FIREBASE_DB = process.env.FIREBASE_DB_URL; // letak dalam Vercel env
-  const url = `${FIREBASE_DB}/bus/location.json`;
-
-  const payload = req.body; // JSON dari ESP32/AIR780E
-
-  const fb = await fetch(url, {
-    method: "PUT", // overwrite bus/location
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    }),
+    databaseURL: process.env.FIREBASE_DB_URL,
   });
+}
 
-  const text = await fb.text();
-  res.status(fb.status).send(text);
+const db = admin.database();
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(200).json({
+      ok: true,
+      message: "BUS-BRIDGE API is running. Use POST to send JSON.",
+    });
+  }
+
+  try {
+    const data = req.body;
+
+    await db.ref("bus/location").set({
+      lat: data.lat,
+      lng: data.lng,
+      speedKmh: data.speedKmh,
+      timestampMs: Date.now(),
+    });
+
+    res.status(200).json({
+      ok: true,
+      message: "Data sent to Firebase",
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+    });
+  }
 }
