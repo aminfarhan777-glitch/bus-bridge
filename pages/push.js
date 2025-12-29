@@ -4,8 +4,9 @@ import admin from "firebase-admin";
 function initFirebase() {
   if (admin.apps.length) return;
 
-  // Vercel ENV (set dalam Project Settings → Environment Variables)
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const serviceAccount = JSON.parse(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+  );
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -14,17 +15,31 @@ function initFirebase() {
 }
 
 export default async function handler(req, res) {
-  // Allow POST only
+  // 🔥 CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    console.log("OPTIONS request");
+    return res.status(200).end();
+  }
+
   if (req.method !== "POST") {
-    return res.status(200).json({ ok: true, message: "Use POST to send JSON." });
+    console.log("NOT POST:", req.method);
+    return res.status(200).json({
+      ok: true,
+      message: "Use POST to send JSON",
+    });
   }
 
   try {
+    console.log("POST BODY:", req.body);
+
     initFirebase();
 
     const { lat, lng, speedKmh, timestampMs } = req.body || {};
 
-    // basic validation
     if (lat == null || lng == null) {
       return res.status(400).json({ ok: false, error: "lat/lng required" });
     }
@@ -33,28 +48,28 @@ export default async function handler(req, res) {
       lat: Number(lat),
       lng: Number(lng),
       speedKmh: Number(speedKmh ?? 0),
-      // server timestamp (lagi reliable)
       timestampMs: Date.now(),
-      // simpan timestamp client kalau nak
       clientTimestampMs: Number(timestampMs ?? 0),
     };
 
     const db = admin.database();
 
-    // ✅ 1) Update CURRENT location (App Android baca sini)
+    // 1️⃣ CURRENT
     await db.ref("bus/location").set(payload);
 
-    // ✅ 2) Push HISTORY (Firebase auto generate ID)
+    // 2️⃣ HISTORY
     const ref = db.ref("bus/history").push();
     await ref.set(payload);
 
+    console.log("SAVED:", ref.key);
+
     return res.status(200).json({
       ok: true,
-      message: "Saved to /bus/location and /bus/history",
+      message: "Saved",
       historyKey: ref.key,
     });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ ok: false, error: String(e) });
+  } catch (err) {
+    console.error("ERROR:", err);
+    return res.status(500).json({ ok: false, error: String(err) });
   }
 }
